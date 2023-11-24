@@ -23,6 +23,7 @@ from rasa.nlu.constants import (
 )
 from rasa.shared.nlu.constants import TEXT, ACTION_TEXT
 from rasa.utils import train_utils
+from rasa.utils.tensorflow.model_data import ragged_array_to_ndarray
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +120,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
         if self.model_name not in model_class_dict:
             raise KeyError(
                 f"'{self.model_name}' not a valid model name. Choose from "
-                f"{str(list(model_class_dict.keys()))} or create"
+                f"{list(model_class_dict.keys())!s} or create"
                 f"a new class inheriting from this class to support your model."
             )
 
@@ -247,7 +248,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
 
         return (
             np.array(sentence_embeddings),
-            np.array(post_processed_sequence_embeddings),
+            ragged_array_to_ndarray(post_processed_sequence_embeddings),
         )
 
     def _tokenize_example(
@@ -448,7 +449,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
             unmasked_embedding = embedding[: actual_sequence_lengths[index]]
             nonpadded_sequence_embeddings.append(unmasked_embedding)
 
-        return np.array(nonpadded_sequence_embeddings)
+        return ragged_array_to_ndarray(nonpadded_sequence_embeddings)
 
     def _compute_batch_sequence_features(
         self, batch_attention_mask: np.ndarray, padded_token_ids: List[List[int]]
@@ -527,6 +528,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
 
         This is only done if the input was truncated during the batch
         preparation of input for the model.
+
         Args:
             sequence_embeddings: Embeddings returned from the model
             actual_sequence_lengths: original sequence length of all inputs
@@ -557,8 +559,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
                     ]
                 )
             reshaped_sequence_embeddings.append(embedding)
-
-        return np.array(reshaped_sequence_embeddings)
+        return ragged_array_to_ndarray(reshaped_sequence_embeddings)
 
     def _get_model_features_for_batch(
         self,
@@ -655,7 +656,7 @@ class LanguageModelFeaturizer(DenseFeaturizer, GraphComponent):
         for embeddings, tokens in zip(sequence_embeddings, batch_tokens):
             sequence_final_embeddings.append(embeddings[: len(tokens)])
 
-        return sentence_embeddings, np.array(sequence_final_embeddings)
+        return sentence_embeddings, ragged_array_to_ndarray(sequence_final_embeddings)
 
     def _get_docs_for_batch(
         self,

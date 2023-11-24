@@ -177,7 +177,7 @@ def test_create_train_data_unfeaturized_entities():
 def test_domain_from_template(domain: Domain):
     assert not domain.is_empty()
     assert len(domain.intents) == 10 + len(DEFAULT_INTENTS)
-    assert len(domain.action_names_or_texts) == 18
+    assert len(domain.action_names_or_texts) == 19
 
 
 def test_avoid_action_repetition(domain: Domain):
@@ -924,7 +924,7 @@ def test_domain_from_multiple_files():
 
     assert expected_intents == domain.intents
     assert expected_entities == sorted(domain.entities)
-    assert expected_actions == domain.user_actions
+    assert sorted(expected_actions) == sorted(domain.user_actions)
     assert expected_responses == domain.responses
     assert expected_forms == domain.forms
     assert domain.session_config.session_expiration_time == 360
@@ -1977,6 +1977,33 @@ def test_domain_slots_for_entities_with_mapping_conditions_no_slot_set():
     assert len(events) == 0
 
 
+def test_domain_slots_for_entities_with_mapping_conditions_no_active_loop():
+    domain = Domain.from_yaml(
+        textwrap.dedent(
+            f"""
+            version: "{LATEST_TRAINING_DATA_FORMAT_VERSION}"
+            entities:
+            - city
+            slots:
+              location:
+                type: text
+                influence_conversation: false
+                mappings:
+                - type: from_entity
+                  entity: city
+                  conditions:
+                  - active_loop: null
+            forms:
+              booking_form:
+                required_slots:
+                  - location
+            """
+        )
+    )
+    events = domain.slots_for_entities([{"entity": "city", "value": "Berlin"}])
+    assert events == [SlotSet("location", "Berlin")]
+
+
 def test_domain_slots_for_entities_sets_valid_slot():
     domain = Domain.from_yaml(
         textwrap.dedent(
@@ -2067,3 +2094,289 @@ def test_merge_domain_with_separate_session_config():
         domain.session_config.session_expiration_time
         == expected_session_expiration_time
     )
+
+
+@pytest.mark.parametrize(
+    "actions, expected_result",
+    [
+        (
+            [
+                {"action_hello_world": {"send_domain": False}},
+                {"action_say_something": {"send_domain": True}},
+                {"action_calculate": {"send_domain": True}},
+                "action_no_domain",
+                "validate_my_form",
+            ],
+            ["action_say_something", "action_calculate", "validate_my_form"],
+        ),
+        (
+            [
+                "action_no_domain",
+                "validate_my_form",
+            ],
+            ["validate_my_form"],
+        ),
+        (
+            [
+                {"action_hello_world": {"send_domain": False}},
+                {"action_say_something": {"send_domain": False}},
+                {"action_calculate": {"send_domain": False}},
+            ],
+            [],
+        ),
+        (
+            [
+                {"action_hello_world": {"send_domain": True}},
+                {"action_say_something": {"send_domain": True}},
+                {"action_calculate": {"send_domain": True}},
+                "validate_my_form",
+            ],
+            [
+                "action_hello_world",
+                "action_say_something",
+                "action_calculate",
+                "validate_my_form",
+            ],
+        ),
+        ([], []),
+        (
+            ["action_say_something", "action_calculate"],
+            [],
+        ),
+    ],
+)
+def test_collect_actions_which_explicitly_need_domain(
+    actions: List[Union[Dict[Text, Any], str]], expected_result: List[str]
+):
+    result = Domain._collect_actions_which_explicitly_need_domain(actions)
+
+    # assert that two unordered lists have same elements
+    assert sorted(result) == sorted(expected_result)
+
+
+@pytest.mark.parametrize(
+    "actions, expected_result",
+    [
+        (
+            [
+                {"action_hello_world": {"send_domain": False}},
+                {"action_say_something": {"send_domain": True}},
+                {"action_calculate": {"send_domain": True}},
+                "action_no_domain",
+                "validate_my_form",
+            ],
+            [
+                "action_hello_world",
+                "action_say_something",
+                "action_calculate",
+                "action_no_domain",
+                "validate_my_form",
+            ],
+        )
+    ],
+)
+def test_collect_actions(
+    actions: List[Union[Dict[Text, Any], str]], expected_result: List[str]
+):
+    result = Domain._collect_action_names(actions)
+
+    # assert that two unordered lists have same elements
+    assert sorted(result) == sorted(expected_result)
+
+
+@pytest.mark.parametrize(
+    "content, expected_user_actions, expected_actions_which_explicitly_need_domain",
+    [
+        (
+            f"""
+        version: "{LATEST_TRAINING_DATA_FORMAT_VERSION}"
+        intents:
+            - greet
+
+        entities:
+            - name
+
+        responses:
+            utter_greet:
+                - text: hey there!
+
+        actions:
+          - action_hello: {{send_domain: True}}
+          - action_bye: {{send_domain: True}}
+          - action_no_domain
+          - validate_my_form
+          """,
+            ["action_hello", "action_bye", "action_no_domain", "validate_my_form"],
+            ["action_hello", "action_bye", "validate_my_form"],
+        ),
+        (
+            f"""
+        version: "{LATEST_TRAINING_DATA_FORMAT_VERSION}"
+        intents:
+            - greet
+
+        entities:
+            - name
+
+        responses:
+            utter_greet:
+                - text: hey there!
+
+        actions:
+          - action_hello
+          - action_bye
+          - action_no_domain
+          - validate_my_form
+          """,
+            [
+                "action_hello",
+                "action_bye",
+                "action_no_domain",
+                "validate_my_form",
+            ],
+            [
+                "validate_my_form",
+            ],
+        ),
+        (
+            f"""
+        version: "{LATEST_TRAINING_DATA_FORMAT_VERSION}"
+        intents:
+            - greet
+
+        entities:
+            - name
+
+        responses:
+            utter_greet:
+                - text: hey there!
+
+        actions:
+          - action_hello
+          - action_bye
+          - action_no_domain
+          """,
+            ["action_hello", "action_bye", "action_no_domain"],
+            [],
+        ),
+    ],
+)
+def test_domain_loads_actions_which_explicitly_need_domain(
+    content: str,
+    expected_user_actions: List[str],
+    expected_actions_which_explicitly_need_domain: List[str],
+):
+    domain = Domain.from_yaml(content)
+    assert domain._custom_actions == expected_user_actions
+    assert (
+        domain._actions_which_explicitly_need_domain
+        == expected_actions_which_explicitly_need_domain
+    )
+
+
+def test_merge_yaml_domains_loads_actions_which_explicitly_need_domain():
+    test_yaml_1 = textwrap.dedent(
+        """
+        actions:
+          - action_hello
+          - action_bye
+          - action_send_domain: {send_domain: True}"""
+    )
+
+    test_yaml_2 = textwrap.dedent(
+        """
+        actions:
+          - action_find_restaurants:
+                send_domain: True"""
+    )
+
+    domain_1 = Domain.from_yaml(test_yaml_1)
+    domain_2 = Domain.from_yaml(test_yaml_2)
+
+    domain = domain_1.merge(domain_2)
+
+    # single attribute should be taken from domain_1
+    expected_actions = [
+        "action_hello",
+        "action_bye",
+        "action_send_domain",
+        "action_find_restaurants",
+    ]
+    expected_actions_that_need_domain = [
+        "action_send_domain",
+        "action_find_restaurants",
+    ]
+    assert sorted(domain._custom_actions) == sorted(expected_actions)
+    assert sorted(domain._actions_which_explicitly_need_domain) == sorted(
+        expected_actions_that_need_domain
+    )
+
+
+@pytest.mark.parametrize(
+    "domain_yaml, expected",
+    [
+        (
+            """
+            responses:
+                utter_greet:
+                - text: hey there!
+                  id: '1233'
+                - text: hey ho!
+                  id: '1234'
+            """,
+            {
+                "utter_greet": [
+                    {
+                        "text": "hey there!",
+                        "id": "1233",
+                    },
+                    {
+                        "text": "hey ho!",
+                        "id": "1234",
+                    },
+                ],
+            },
+        ),
+        (
+            """
+            responses:
+                utter_greet:
+                - text: hey there!
+                - text: hey ho!
+                  id: '1234'
+            """,
+            {
+                "utter_greet": [
+                    {
+                        "text": "hey there!",
+                    },
+                    {
+                        "text": "hey ho!",
+                        "id": "1234",
+                    },
+                ],
+            },
+        ),
+        (
+            """
+            responses:
+                utter_greet:
+                - text: hey there!
+                - text: hey ho!
+            """,
+            {
+                "utter_greet": [
+                    {
+                        "text": "hey there!",
+                    },
+                    {
+                        "text": "hey ho!",
+                    },
+                ],
+            },
+        ),
+    ],
+)
+def test_domain_responses_with_ids_are_loaded(domain_yaml, expected) -> None:
+    domain = Domain.from_yaml(domain_yaml)
+    assert domain.responses == expected

@@ -35,12 +35,12 @@ from rasa.constants import (
     ENV_LOG_LEVEL_KAFKA,
 )
 from rasa.shared.constants import DEFAULT_LOG_LEVEL, ENV_LOG_LEVEL, TCP_PROTOCOL
+from rasa.shared.exceptions import RasaException
 import rasa.shared.utils.io
 
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-
 
 EXPECTED_PILLOW_DEPRECATION_WARNINGS: List[Tuple[Type[Warning], str]] = [
     # Keras uses deprecated Pillow features
@@ -48,7 +48,6 @@ EXPECTED_PILLOW_DEPRECATION_WARNINGS: List[Tuple[Type[Warning], str]] = [
     (DeprecationWarning, f"{method} is deprecated and will be removed in Pillow 10 .*")
     for method in ["BICUBIC", "NEAREST", "BILINEAR", "HAMMING", "BOX", "LANCZOS"]
 ]
-
 
 EXPECTED_WARNINGS: List[Tuple[Type[Warning], str]] = [
     # TODO (issue #9932)
@@ -77,6 +76,13 @@ EXPECTED_WARNINGS: List[Tuple[Type[Warning], str]] = [
     (ImportWarning, "_SixMetaPathImporter.find_spec*"),
     # 3.10 specific warning: https://github.com/pytest-dev/pytest-asyncio/issues/212
     (DeprecationWarning, "There is no current event loop"),
+    # UserWarning which is always issued if the default value for
+    # assistant_id key in config file is not changed
+    (UserWarning, "is missing a unique value for the 'assistant_id' mandatory key.*"),
+    (
+        DeprecationWarning,
+        "non-integer arguments to randrange\\(\\) have been deprecated since",
+    ),
 ]
 
 EXPECTED_WARNINGS.extend(EXPECTED_PILLOW_DEPRECATION_WARNINGS)
@@ -353,7 +359,7 @@ def update_rabbitmq_log_level(library_log_level: Text) -> None:
 
 def sort_list_of_dicts_by_first_key(dicts: List[Dict]) -> List[Dict]:
     """Sorts a list of dictionaries by their first key."""
-    return sorted(dicts, key=lambda d: list(d.keys())[0])
+    return sorted(dicts, key=lambda d: next(iter(d.keys())))
 
 
 def write_global_config_value(name: Text, value: Any) -> bool:
@@ -513,11 +519,6 @@ def directory_size_in_mb(
 def copy_directory(source: Path, destination: Path) -> None:
     """Copies the content of one directory into another.
 
-    Unlike `shutil.copytree` this doesn't raise if `destination` already exists.
-
-    # TODO: Drop this in favor of `shutil.copytree(..., dirs_exist_ok=True)` when
-    # dropping Python 3.7.
-
     Args:
         source: The directory whose contents should be copied to `destination`.
         destination: The directory which should contain the content `source` in the end.
@@ -534,11 +535,7 @@ def copy_directory(source: Path, destination: Path) -> None:
             f"can only be copied to empty directories."
         )
 
-    for item in source.glob("*"):
-        if item.is_dir():
-            shutil.copytree(item, destination / item.name)
-        else:
-            shutil.copy2(item, destination / item.name)
+    shutil.copytree(source, destination, dirs_exist_ok=True)
 
 
 def find_unavailable_packages(package_names: List[Text]) -> Set[Text]:
@@ -565,3 +562,29 @@ def find_unavailable_packages(package_names: List[Text]) -> Set[Text]:
 def module_path_from_class(clazz: Type) -> Text:
     """Return the module path of an instance's class."""
     return clazz.__module__ + "." + clazz.__name__
+
+
+def get_bool_env_variable(variable_name: str, default_variable_value: bool) -> bool:
+    """Fetch bool value stored in environment variable.
+
+    If environment variable is set but value is
+    not of boolean nature, an exception will be raised.
+
+    Args: variable_name:
+        Name of the environment variable.
+        default_variable_value: Value to be returned if environment variable is not set.
+
+    Returns:
+        A boolean value stored in the environment variable
+        or default value if environment variable is not set.
+    """
+    true_values = (str(True).lower(), str(1).lower())
+    false_values = (str(False).lower(), str(0).lower())
+    value = os.getenv(variable_name, default=str(default_variable_value))
+
+    if value.lower() not in true_values + false_values:
+        raise RasaException(
+            f"Invalid value `{value}` for variable `{variable_name}`. "
+            f"Available values are `{true_values + false_values}`"
+        )
+    return value.lower() in true_values

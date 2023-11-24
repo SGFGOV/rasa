@@ -16,12 +16,12 @@ jobs:
     name: Run Tests
     runs-on: ubuntu-22.04
     #missing matrix
-    strategy: 
+    strategy:
       fail-fast: false
 
     steps:
       - name: Checkout git repository 🕝
-        uses: actions/checkout@v3
+        uses: actions/checkout@ac593985615ec2ede58e132d2e21d2b1cbd6127c
 
       - name: Download gomplate
         run: |-
@@ -29,7 +29,7 @@ jobs:
           sudo chmod +x /usr/local/bin/gomplate
 
       - name: Set up Python ${{ env.DEFAULT_PYTHON_VERSION }} 🐍
-        uses: actions/setup-python@13ae5bb136fac2878aff31522b9efb785519f984
+        uses: actions/setup-python@57ded4d7d5e986d7296eab16560982c6dd7c923b
         with:
           python-version: ${{ env.DEFAULT_PYTHON_VERSION }}
 
@@ -45,7 +45,7 @@ jobs:
 
       - name: Load Poetry Cached Libraries ⬇
         id: cache-poetry
-        uses: actions/cache@v3
+        uses: actions/cache@88522ab9f39a2ea568f7027eddc7d8d8bc9d59c8
         with:
           path: .venv
           key: ${{ runner.os }}-poetry-${{ env.POETRY_VERSION }}-${{ env.DEFAULT_PYTHON_VERSION }}-${{ hashFiles('**/poetry.lock') }}-${{ secrets.POETRY_CACHE_VERSION }}
@@ -68,7 +68,7 @@ jobs:
 
       - name: Lint Code 🎎
         run: |
-          poetry run flake8 .github --extend-ignore D
+          poetry run ruff check .github --extend-ignore D
           poetry run black --check .github
 
       - name: Test Code 🔍

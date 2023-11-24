@@ -790,12 +790,17 @@ def test_core_warn_if_no_rule_policy(
         assert len(records) == 0
 
 
+class CustomTempRulePolicy(RulePolicy):
+    pass
+
+
 @pytest.mark.parametrize(
     "policy_types, should_raise",
     [
         ([TEDPolicy], True),
         ([RulePolicy], False),
         ([MemoizationPolicy, RulePolicy], False),
+        ([CustomTempRulePolicy], False),
     ],
 )
 def test_core_raise_if_domain_contains_form_names_but_no_rule_policy_given(
@@ -807,7 +812,7 @@ def test_core_raise_if_domain_contains_form_names_but_no_rule_policy_given(
     importer = DummyImporter(domain=domain_with_form)
     graph_schema = GraphSchema(
         {
-            "policy": SchemaNode({}, policy_type, "", "", {})
+            "policy": SchemaNode({}, policy_type, "", "", {})  # noqa: RUF011
             for policy_type in policy_types
         }
     )
